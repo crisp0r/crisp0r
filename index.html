@@ -304,33 +304,33 @@
                 difficulty = 'hard';
             }
 
-            // Calculate minimum safe gap size based on screen height
+            // Calculate minimum safe gap size based on actual screen height (accounting for DPR)
+            const screenHeight = canvas.height / dpr;
             const minSafeGap = Math.max(
-                canvas.height * 0.2,  // At least 20% of screen height
-                bird.radius * 4       // Or 4x bird size, whichever is larger
+                screenHeight * 0.25,    // Increased from 0.2 to 0.25
+                bird.radius * 6,        // Increased from 4x to 6x bird size
+                100                     // Absolute minimum gap size in pixels
             );
 
-            // Adjust gap size based on difficulty but never smaller than minSafeGap
-            const gap = Math.max(PIPE_GAPS[difficulty], minSafeGap);
+            // Ensure gap size is scaled for DPR
+            const gap = Math.max(PIPE_GAPS[difficulty], minSafeGap) * dpr;
             
-            // Calculate safe zone for gap placement
-            const minY = spikeSize + gap/2;
-            const maxY = canvas.height - spikeSize - gap/2;
-            
-            // Ensure the gap boundaries are valid
-            if (minY >= maxY) {
-                // Screen too small, center the gap
-                const centerY = canvas.height / 2;
-                return {
-                    x: Math.round(canvas.width),
-                    height: centerY - gap/2,
-                    passed: false,
-                    difficulty: difficulty,
-                    gap: gap
-                };
+            // Validate gap size
+            if (gap <= 0 || isNaN(gap)) {
+                console.error('Invalid gap size:', gap);
+                return createSafePipe(difficulty);
             }
             
-            // Rest of the pipe creation logic with reachable gaps
+            // Calculate safe zone for gap placement
+            const minY = spikeSize + gap;  // Increased safety margin
+            const maxY = canvas.height - spikeSize - gap;  // Increased safety margin
+            
+            // Ensure the gap boundaries are valid
+            if (minY >= maxY || minY < 0 || maxY > canvas.height) {
+                return createSafePipe(difficulty);
+            }
+            
+            // Rest of the pipe creation logic...
             if (pipes.length > 0) {
                 const lastPipe = pipes[pipes.length - 1];
                 const lastGapCenter = lastPipe.height + lastPipe.gap/2;
@@ -341,29 +341,55 @@
                 const minReachable = Math.max(minY, lastGapCenter - maxDownwardMovement);
                 const maxReachable = Math.min(maxY, lastGapCenter + maxUpwardMovement);
                 
-                const gapCenter = minReachable + Math.random() * (maxReachable - minReachable);
-                const height = gapCenter - gap/2;
+                // Validate reachable zone
+                if (minReachable >= maxReachable || isNaN(minReachable) || isNaN(maxReachable)) {
+                    return createSafePipe(difficulty);
+                }
                 
-                return {
+                const gapCenter = minReachable + Math.random() * (maxReachable - minReachable);
+                const height = Math.max(spikeSize, gapCenter - gap/2);  // Ensure minimum height
+                
+                return validatePipe({
                     x: Math.round(canvas.width),
                     height: height,
                     passed: false,
                     difficulty: difficulty,
                     gap: gap
-                };
+                });
             }
             
-            // First pipe
+            // First pipe with validated values
             const gapCenter = minY + Math.random() * (maxY - minY);
-            const height = gapCenter - gap/2;
+            const height = Math.max(spikeSize, gapCenter - gap/2);
             
-            return {
+            return validatePipe({
                 x: Math.round(canvas.width),
                 height: height,
                 passed: false,
                 difficulty: difficulty,
                 gap: gap
+            });
+        }
+
+        // Helper function to create a safe fallback pipe
+        function createSafePipe(difficulty) {
+            const safeGap = Math.max(canvas.height * 0.25, 120) * dpr;
+            const centerY = canvas.height / 2;
+            return {
+                x: Math.round(canvas.width),
+                height: centerY - safeGap/2,
+                passed: false,
+                difficulty: difficulty,
+                gap: safeGap
             };
+        }
+
+        // Helper function to validate pipe properties
+        function validatePipe(pipe) {
+            if (pipe.height < 0 || pipe.gap <= 0 || pipe.height + pipe.gap > canvas.height) {
+                return createSafePipe(pipe.difficulty);
+            }
+            return pipe;
         }
 
         // Initialize with two pipes with exact spacing, but closer to start
