@@ -651,6 +651,12 @@
                     const chaosBonus = pipesOscillating ? 5 : 0;
                     score += points + chaosBonus;
                     
+                    // Update high score if current score is higher
+                    if (score > highScore) {
+                        highScore = score;
+                        localStorage.setItem('flappyHighScore', highScore);
+                    }
+                    
                     // Play score sound
                     scoreSound.currentTime = 0;
                     scoreSound.play();
