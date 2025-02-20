@@ -431,8 +431,11 @@
         let hasInteracted = false;
         document.addEventListener('touchstart', () => {
             if (!hasInteracted) {
-                if (document.documentElement.requestFullscreen) {
-                    document.documentElement.requestFullscreen();
+                // Don't request fullscreen on mobile devices
+                if (!(/Mobi|Android/i.test(navigator.userAgent))) {
+                    if (document.documentElement.requestFullscreen) {
+                        document.documentElement.requestFullscreen();
+                    }
                 }
                 hasInteracted = true;
             }
