@@ -6,16 +6,22 @@
     <style>
         body {
             margin: 0;
-            overflow: hidden;
-            position: fixed;
-            touch-action: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #333;  /* Dark background around the game */
         }
         
         canvas {
             width: 100vw;
-            height: 100vh;
+            max-width: 800px;  /* Limit maximum width */
+            height: 85vh;      /* Take up 85% of viewport height */
+            max-height: 600px; /* Limit maximum height */
             border: none;
             background: linear-gradient(to bottom, #87CEEB, #E0F6FF);
+            border-radius: 10px; /* Optional: rounded corners */
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.3); /* Optional: add some depth */
         }
         
         /* HUD elements */
