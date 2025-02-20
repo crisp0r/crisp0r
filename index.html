@@ -1190,6 +1190,23 @@
                 }
             }
         });
+
+        // First, add a function to detect if we're on mobile
+        function isMobileDevice() {
+            return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        }
+
+        // Then modify the game over overlay HTML to be device-aware
+        const gameOverMessage = isMobileDevice() ? "Tap to restart" : "Press Space to restart";
+        document.querySelector('#gameOverContent p').textContent = gameOverMessage;
+
+        // Finally, add touch handling for the game over overlay
+        document.getElementById('gameOverOverlay').addEventListener('touchstart', (e) => {
+            if (gameOver) {
+                e.preventDefault();
+                resetGame();
+            }
+        }, { passive: false });
     </script>
 </body>
 </html>
