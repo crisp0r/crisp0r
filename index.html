@@ -304,26 +304,43 @@
                 difficulty = 'hard';
             }
 
-            const gap = PIPE_GAPS[difficulty];
+            // Calculate minimum safe gap size based on screen height
+            const minSafeGap = Math.max(
+                canvas.height * 0.2,  // At least 20% of screen height
+                bird.radius * 4       // Or 4x bird size, whichever is larger
+            );
+
+            // Adjust gap size based on difficulty but never smaller than minSafeGap
+            const gap = Math.max(PIPE_GAPS[difficulty], minSafeGap);
             
-            // Calculate safe zone for gap
+            // Calculate safe zone for gap placement
             const minY = spikeSize + gap/2;
             const maxY = canvas.height - spikeSize - gap/2;
             
-            // If there are existing pipes, ensure gap is reachable
+            // Ensure the gap boundaries are valid
+            if (minY >= maxY) {
+                // Screen too small, center the gap
+                const centerY = canvas.height / 2;
+                return {
+                    x: Math.round(canvas.width),
+                    height: centerY - gap/2,
+                    passed: false,
+                    difficulty: difficulty,
+                    gap: gap
+                };
+            }
+            
+            // Rest of the pipe creation logic with reachable gaps
             if (pipes.length > 0) {
                 const lastPipe = pipes[pipes.length - 1];
                 const lastGapCenter = lastPipe.height + lastPipe.gap/2;
                 
-                // Calculate maximum possible movement
-                const maxUpwardMovement = MAX_JUMP_HEIGHT * 1.2;  // Give 20% extra room for safety
+                const maxUpwardMovement = MAX_JUMP_HEIGHT * 1.2;
                 const maxDownwardMovement = MAX_FALL_DISTANCE * 1.2;
                 
-                // Calculate reachable zone
                 const minReachable = Math.max(minY, lastGapCenter - maxDownwardMovement);
                 const maxReachable = Math.min(maxY, lastGapCenter + maxUpwardMovement);
                 
-                // Place gap completely randomly within reachable zone
                 const gapCenter = minReachable + Math.random() * (maxReachable - minReachable);
                 const height = gapCenter - gap/2;
                 
@@ -336,7 +353,7 @@
                 };
             }
             
-            // For first pipe, use completely random position within safe zone
+            // First pipe
             const gapCenter = minY + Math.random() * (maxY - minY);
             const height = gapCenter - gap/2;
             
