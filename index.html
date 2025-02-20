@@ -970,12 +970,16 @@
 
             // Draw pipes with difficulty colors
             pipes.forEach(pipe => {
-                const drawX = Math.round(pipe.x);  // Round only for drawing
+                const drawX = Math.round(pipe.x);
                 
                 // Draw shadows
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+                // Top pipe shadow
                 ctx.fillRect(drawX + 4, 4, pipeWidth, pipe.height);
-                ctx.fillRect(drawX + 4, pipe.height + pipe.gap + 4, pipeWidth, canvas.height);
+                // Bottom pipe shadow - calculate from top of bottom pipe to bottom of canvas
+                const bottomPipeStart = pipe.height + pipe.gap;
+                const bottomPipeHeight = canvas.height - bottomPipeStart;
+                ctx.fillRect(drawX + 4, bottomPipeStart + 4, pipeWidth, bottomPipeHeight);
 
                 // Draw main pipes with difficulty colors
                 switch(pipe.difficulty) {
@@ -994,11 +998,13 @@
                 }
                 ctx.lineWidth = 4;
                 
-                // Draw the colored pipes
+                // Draw the top pipe
                 ctx.fillRect(drawX, 0, pipeWidth, pipe.height);
                 ctx.strokeRect(drawX, 0, pipeWidth, pipe.height);
-                ctx.fillRect(drawX, pipe.height + pipe.gap, pipeWidth, canvas.height);
-                ctx.strokeRect(drawX, pipe.height + pipe.gap, pipeWidth, canvas.height);
+                
+                // Draw the bottom pipe - explicitly calculate height
+                ctx.fillRect(drawX, bottomPipeStart, pipeWidth, bottomPipeHeight);
+                ctx.strokeRect(drawX, bottomPipeStart, pipeWidth, bottomPipeHeight);
             });
 
             // Draw bird with invincibility effect
