@@ -307,30 +307,25 @@
             // Calculate minimum safe gap size based on actual screen height (accounting for DPR)
             const screenHeight = canvas.height / dpr;
             const minSafeGap = Math.max(
-                screenHeight * 0.25,    // Increased from 0.2 to 0.25
-                bird.radius * 6,        // Increased from 4x to 6x bird size
-                100                     // Absolute minimum gap size in pixels
+                screenHeight * 0.25,
+                bird.radius * 6,
+                100
             );
 
             // Ensure gap size is scaled for DPR
             const gap = Math.max(PIPE_GAPS[difficulty], minSafeGap) * dpr;
             
-            // Validate gap size
-            if (gap <= 0 || isNaN(gap)) {
-                console.error('Invalid gap size:', gap);
-                return createSafePipe(difficulty);
-            }
-            
-            // Calculate safe zone for gap placement
-            const minY = spikeSize + gap;  // Increased safety margin
-            const maxY = canvas.height - spikeSize - gap;  // Increased safety margin
+            // Calculate safe zone for gap placement, ensuring room for both top and bottom pipes
+            const minY = spikeSize * 2;  // Minimum space from top
+            const maxY = canvas.height - spikeSize * 2 - gap;  // Maximum space from bottom
             
             // Ensure the gap boundaries are valid
             if (minY >= maxY || minY < 0 || maxY > canvas.height) {
                 return createSafePipe(difficulty);
             }
             
-            // Rest of the pipe creation logic...
+            // Calculate pipe position
+            let height;
             if (pipes.length > 0) {
                 const lastPipe = pipes[pipes.length - 1];
                 const lastGapCenter = lastPipe.height + lastPipe.gap/2;
@@ -341,34 +336,26 @@
                 const minReachable = Math.max(minY, lastGapCenter - maxDownwardMovement);
                 const maxReachable = Math.min(maxY, lastGapCenter + maxUpwardMovement);
                 
-                // Validate reachable zone
-                if (minReachable >= maxReachable || isNaN(minReachable) || isNaN(maxReachable)) {
+                if (minReachable >= maxReachable) {
                     return createSafePipe(difficulty);
                 }
                 
-                const gapCenter = minReachable + Math.random() * (maxReachable - minReachable);
-                const height = Math.max(spikeSize, gapCenter - gap/2);  // Ensure minimum height
-                
-                return validatePipe({
-                    x: Math.round(canvas.width),
-                    height: height,
-                    passed: false,
-                    difficulty: difficulty,
-                    gap: gap
-                });
+                height = minReachable + Math.random() * (maxReachable - minReachable);
+            } else {
+                height = minY + Math.random() * (maxY - minY);
             }
-            
-            // First pipe with validated values
-            const gapCenter = minY + Math.random() * (maxY - minY);
-            const height = Math.max(spikeSize, gapCenter - gap/2);
-            
-            return validatePipe({
+
+            // Ensure both top and bottom pipes are visible
+            const pipe = {
                 x: Math.round(canvas.width),
-                height: height,
+                height: Math.max(spikeSize * 2, Math.min(height, canvas.height - gap - spikeSize * 2)),
                 passed: false,
                 difficulty: difficulty,
                 gap: gap
-            });
+            };
+
+            // Validate final pipe configuration
+            return validatePipe(pipe);
         }
 
         // Helper function to create a safe fallback pipe
@@ -386,7 +373,10 @@
 
         // Helper function to validate pipe properties
         function validatePipe(pipe) {
-            if (pipe.height < 0 || pipe.gap <= 0 || pipe.height + pipe.gap > canvas.height) {
+            // Ensure there's always space for both top and bottom pipes
+            if (pipe.height < spikeSize * 2 || 
+                pipe.gap <= 0 || 
+                pipe.height + pipe.gap > canvas.height - spikeSize * 2) {
                 return createSafePipe(pipe.difficulty);
             }
             return pipe;
