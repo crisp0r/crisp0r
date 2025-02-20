@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Flappy Bird</title>
+    <!-- Mobile-specific styling -->
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            position: fixed;
+            touch-action: none;
+        }
+        
+        canvas {
+            width: 100vw;
+            height: 100vh;
+            border: none;
+            background: linear-gradient(to bottom, #87CEEB, #E0F6FF);
+        }
+        
+        /* HUD elements */
+        #scoreDisplay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-family: Arial, sans-serif;
+            font-size: max(20px, min(28px, 5vw));
+            color: white;
+            text-shadow: 2px 2px 4px #333;
+            font-weight: bold;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 10px;
+            z-index: 1000;
+        }
+
+        #gameOverOverlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            z-index: 1001;
+        }
+
+        #gameOverContent {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: white;
+            font-family: Arial, sans-serif;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #gameOverContent h1 {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        #gameOverContent p {
+            font-size: 24px;
+            margin: 10px 0;
+        }
+
+        #finalScore {
+            color: #FFD700;
+            font-size: 36px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="scoreDisplay">Score: 0<br>High Score: 0</div>
+    
+    <!-- Audio assets -->
+    <audio id="gameOverSound" src="gameover.wav" preload="auto"></audio>
+    <audio id="invincibleMusic" src="bg.mp3" preload="auto" loop></audio>
+    <audio id="backgroundMusic" src="invincible.mp3" preload="auto" loop></audio>
+    <audio id="scoreSound" src="score.wav" preload="auto"></audio>
+    <audio id="whooshSound" src="whoosh.wav" preload="auto"></audio>
+    <audio id="chaosSound" src="chaos.wav" preload="auto"></audio>
+
+    <div id="gameOverOverlay">
+        <div id="gameOverContent">
+            <h1>Game Over!</h1>
+            <div id="finalScore">Score: 0</div>
+            <p>Press Space to restart</p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        // Set canvas resolution based on device pixel ratio
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        const scoreDisplay = document.getElementById('scoreDisplay');
+
+        // Get audio elements
+        const gameOverSound = document.getElementById('gameOverSound');
+        const invincibleMusic = document.getElementById('invincibleMusic');
+        const backgroundMusic = document.getElementById('backgroundMusic');
+        const scoreSound = document.getElementById('scoreSound');
+        const whooshSound = document.getElementById('whooshSound');
+        const chaosSound = document.getElementById('chaosSound');
+
+        // Set volumes
+        gameOverSound.volume = 0.08;
+        invincibleMusic.volume = 0.2;
+        backgroundMusic.volume = 0.10;
+        scoreSound.volume = 0.16;
+        whooshSound.volume = 0.05;
+        chaosSound.volume = 0.5;  // Increased from 0.08 to 0.5 (much louder)
+
+        // Try multiple ways to start background music
+        function startBackgroundMusic() {
+            backgroundMusic.play().catch(() => {
+                console.log("Autoplay prevented");
+            });
+        }
+
+        // Try to start music immediately
+        startBackgroundMusic();
+
+        // Start on any interaction
+        document.addEventListener('keydown', () => {
+            startBackgroundMusic();
+        }, { once: true });
+
+        document.addEventListener('click', () => {
+            startBackgroundMusic();
+        }, { once: true });
+
+        document.addEventListener('touchstart', () => {
+            startBackgroundMusic();
+        }, { once: true });
+
+        // Also try to start music when game starts
+        window.addEventListener('load', () => {
+            startBackgroundMusic();
+        });
+
+        // Comic style exclamations
+        const exclamations = [
+            "POW!",
+            "BAM!",
+            "ZOOM!",
+            "WOW!",
+            "AMAZING!",
+            "AWESOME!",
+            "KAPOW!",
+            "WHAM!",
+            "FANTASTIC!",
+            "SUPER!"
+        ];
+
+        // Bird object with initial properties
+        const bird = {
+            x: 150,
+            y: 300,
+            velocity: 0,
+            gravity: 0.5,
+            radius: 20,
+            wingAngle: 0,
+            wingSpeed: 0.2,
+            rotation: 0,  // Add rotation property
+            shadowOffset: 4  // For cell-shading effect
+        };
+
+        // Game state variables
+        let pipes = [];
+        const pipeWidth = 80;
+        const pipeSpeed = 4;
+        let score = 0;
+        let highScore = localStorage.getItem('flappyHighScore') || 0;
+        let gameOver = false;
+        let scoreAnimation = null;
+        let spacePressed = false;
+        
+        // Jump mechanic variables
+        let isJumping = false;
+        let jumpHoldFrames = 0;
+        const initialJumpVelocity = -7; // Strong upward velocity for jump
+        const maxHoldFrames = 4;        // Frames to sustain jump when holding
+
+        // Add to game state variables
+        let isInvincible = false;
+        let invincibilityTimer = 0;
+        let visualEffectTimer = 0;
+        const INVINCIBILITY_DURATION = 12000; // Increased from 6000 to 12000 (12 seconds total)
+        const VISUAL_EFFECT_DURATION = 10000; // Increased from 5000 to 10000 (10 seconds of visual effect)
+
+        // Add after game state variables
+        const spikeSize = 20; // Size of each spike
+        const spikeSpacing = 40; // Distance between spike tips
+        let scrollOffset = 0; // Track scroll position
+
+        // Add difficulty settings
+        const PIPE_GAPS = {
+            easy: 200,    // Reduced from 260 to 200
+            medium: 170,  // Reduced from 200 to 170
+            hard: 140     // Reduced from 150 to 140
+        };
+
+        const POINTS = {
+            easy: 1,
+            medium: 2,
+            hard: 3
+        };
+
+        // Add exclamationAnimation to game state variables
+        let exclamationAnimation = null;
+
+        // Add to game state variables
+        let bgMusicFadeIn = false;
+        let bgMusicVolume = 0.10;  // Store original volume
+
+        // Add to game state variables after stars array
+        let chaosStars = [];
+        let pipesOscillating = false;
+        let oscillationTimer = 0;
+        const OSCILLATION_DURATION = 16000; // Increased from 8000 to 16000 (16 seconds of chaos)
+        const OSCILLATION_SPEED = 1; // Reduced from 2 to 1 (slower movement)
+        const OSCILLATION_AMPLITUDE = 50; // Reduced from 100 to 50 (less vertical movement)
+
+        // Add to game state variables
+        let bloodSplat = null;
+
+        // Modify the pipe spacing constants - we'll only use one fixed spacing now
+        const PIPE_SPACING = 525; // Fixed spacing between pipes
+
+        // Add constants for bird movement calculations
+        const MAX_JUMP_HEIGHT = 100;  // Reduced from 120 to 100 (even harder to reach high pipes)
+        const MAX_FALL_DISTANCE = 130;  // Reduced from 160 to 130 (need to react even faster to drops)
+
+        // Add blood splat class
+        class BloodSplat {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 5;
+                this.maxRadius = 40;
+                this.opacity = 1;
+                this.splats = [];
+                // Create random splatter particles
+                for (let i = 0; i < 8; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const distance = 10 + Math.random() * 30;
+                    this.splats.push({
+                        x: Math.cos(angle) * distance,
+                        y: Math.sin(angle) * distance,
+                        size: 5 + Math.random() * 15
+                    });
+                }
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                
+                // Draw main splat
+                ctx.fillStyle = `rgba(255, 0, 0, ${this.opacity})`;
+                ctx.beginPath();
+                ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Draw splatter particles
+                this.splats.forEach(splat => {
+                    ctx.beginPath();
+                    ctx.arc(splat.x, splat.y, splat.size, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+
+                ctx.restore();
+            }
+
+            update() {
+                if (this.radius < this.maxRadius) {
+                    this.radius += 2;
+                } else {
+                    this.opacity -= 0.02;
+                }
+            }
+        }
+
+        // Modify pipe creation to be more random but achievable
+        function createNewPipe() {
+            const random = Math.random();
+            let difficulty;
+            
+            if (random < 0.60) {
+                difficulty = 'easy';
+            } else if (random < 0.90) {
+                difficulty = 'medium';
+            } else {
+                difficulty = 'hard';
+            }
+
+            const gap = PIPE_GAPS[difficulty];
+            
+            // Calculate safe zone for gap
+            const minY = spikeSize + gap/2;
+            const maxY = canvas.height - spikeSize - gap/2;
+            
+            // If there are existing pipes, ensure gap is reachable
+            if (pipes.length > 0) {
+                const lastPipe = pipes[pipes.length - 1];
+                const lastGapCenter = lastPipe.height + lastPipe.gap/2;
+                
+                // Calculate maximum possible movement
+                const maxUpwardMovement = MAX_JUMP_HEIGHT * 1.2;  // Give 20% extra room for safety
+                const maxDownwardMovement = MAX_FALL_DISTANCE * 1.2;
+                
+                // Calculate reachable zone
+                const minReachable = Math.max(minY, lastGapCenter - maxDownwardMovement);
+                const maxReachable = Math.min(maxY, lastGapCenter + maxUpwardMovement);
+                
+                // Place gap completely randomly within reachable zone
+                const gapCenter = minReachable + Math.random() * (maxReachable - minReachable);
+                const height = gapCenter - gap/2;
+                
+                return {
+                    x: Math.round(canvas.width),
+                    height: height,
+                    passed: false,
+                    difficulty: difficulty,
+                    gap: gap
+                };
+            }
+            
+            // For first pipe, use completely random position within safe zone
+            const gapCenter = minY + Math.random() * (maxY - minY);
+            const height = gapCenter - gap/2;
+            
+            return {
+                x: Math.round(canvas.width),
+                height: height,
+                passed: false,
+                difficulty: difficulty,
+                gap: gap
+            };
+        }
+
+        // Initialize with two pipes with exact spacing, but closer to start
+        pipes = [
+            {
+                ...createNewPipe(),
+                x: Math.round(canvas.width * 0.5)  // First pipe at half screen width
+            },
+            {
+                ...createNewPipe(),
+                x: Math.round(canvas.width * 0.5 + PIPE_SPACING)  // Second pipe spaced after first
+            }
+        ];
+
+        // Add touch event listeners
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Prevent scrolling
+            if (!gameOver) {
+                if (!isJumping) {
+                    bird.velocity = initialJumpVelocity;
+                    isJumping = true;
+                    jumpHoldFrames = maxHoldFrames;
+                    whooshSound.currentTime = 0;
+                    whooshSound.play();
+                }
+                spacePressed = true;
+            } else {
+                resetGame();
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', () => {
+            spacePressed = false;
+        });
+
+        // Add window resize handler
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth * dpr;
+            canvas.height = window.innerHeight * dpr;
+            ctx.scale(dpr, dpr);
+        });
+
+        // Add audio autoplay fix for mobile
+        document.addEventListener('touchstart', () => {
+            startBackgroundMusic();
+        }, { once: true });
+
+        // Add fullscreen request on first touch (optional)
+        let hasInteracted = false;
+        document.addEventListener('touchstart', () => {
+            if (!hasInteracted) {
+                if (document.documentElement.requestFullscreen) {
+                    document.documentElement.requestFullscreen();
+                }
+                hasInteracted = true;
+            }
+        }, { once: true });
+
+        // Reset the game to initial state
+        function resetGame() {
+            // Hide game over overlay
+            document.getElementById('gameOverOverlay').style.display = 'none';
+            bird.y = 300;
+            bird.velocity = 0;
+            spacePressed = false;
+            isJumping = false;
+            jumpHoldFrames = 0;
+            pipes = [
+                {
+                    ...createNewPipe(),
+                    x: Math.round(canvas.width * 0.5)
+                },
+                {
+                    ...createNewPipe(),
+                    x: Math.round(canvas.width * 0.5 + PIPE_SPACING)
+                }
+            ];
+            score = 0;
+            gameOver = false;
+            scoreAnimation = null;
+            exclamationAnimation = null;
+            updateScoreDisplay();
+            isInvincible = false;
+            invincibilityTimer = 0;
+            visualEffectTimer = 0;
+            stars = [];
+            invincibleMusic.pause();  // Make sure music stops on reset
+            invincibleMusic.currentTime = 0;
+            backgroundMusic.play();  // Resume background music if it was paused
+            bgMusicFadeIn = false;
+            backgroundMusic.volume = bgMusicVolume;
+            pipesOscillating = false;
+            oscillationTimer = 0;
+            chaosStars = [];
+            bloodSplat = null;
+        }
+
+        // Update the score display in the UI
+        function updateScoreDisplay() {
+            scoreDisplay.innerHTML = `Score: ${score}<br>High Score: ${highScore}`;
+        }
+
+        // Add cloud class
+        class Cloud {
+            constructor() {
+                this.x = canvas.width;
+                this.y = Math.random() * (canvas.height/2);  // Only in top half of screen
+                this.width = 60 + Math.random() * 40;  // Random cloud width
+                this.height = 30 + Math.random() * 20;  // Random cloud height
+                this.speed = 1 + Math.random();  // Random speed
+            }
+
+            draw() {
+                // Draw shadow
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+                ctx.beginPath();
+                ctx.arc(this.x + 2, this.y + 2, this.height/2, 0, Math.PI * 2);
+                ctx.arc(this.x + this.width/3 + 2, this.y - this.height/4 + 2, this.height/2, 0, Math.PI * 2);
+                ctx.arc(this.x + this.width/1.5 + 2, this.y + 2, this.height/2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Draw main cloud
+                ctx.fillStyle = '#ffffff';
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';  // Very light outline
+                ctx.lineWidth = 1;  // Thin line
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.height/2, 0, Math.PI * 2);
+                ctx.arc(this.x + this.width/3, this.y - this.height/4, this.height/2, 0, Math.PI * 2);
+                ctx.arc(this.x + this.width/1.5, this.y, this.height/2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+            }
+
+            update() {
+                this.x -= this.speed;
+            }
+        }
+
+        // Add clouds array
+        let clouds = [];
+        const maxClouds = 3;
+
+        // Add star class
+        class Star {
+            constructor() {
+                this.x = canvas.width;
+                this.y = Math.random() * (canvas.height - 100) + 50;
+                this.size = 20;
+                this.rotation = 0;
+                this.collected = false;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                ctx.beginPath();
+                ctx.fillStyle = '#FFD700';
+                for (let i = 0; i < 5; i++) {
+                    ctx.lineTo(Math.cos((18 + i * 72) * Math.PI / 180) * this.size,
+                              Math.sin((18 + i * 72) * Math.PI / 180) * this.size);
+                    ctx.lineTo(Math.cos((54 + i * 72) * Math.PI / 180) * (this.size/2),
+                              Math.sin((54 + i * 72) * Math.PI / 180) * (this.size/2));
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.strokeStyle = '#FFA500';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            update() {
+                this.x -= pipeSpeed * 0.7;
+                this.rotation += 0.02;
+            }
+        }
+
+        // Add stars array
+        let stars = [];
+
+        // Add Chaos Star class
+        class ChaosStar {
+            constructor() {
+                this.x = canvas.width;
+                this.y = Math.random() * (canvas.height - 100) + 50;
+                this.size = 20;
+                this.rotation = 0;
+                this.collected = false;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                ctx.beginPath();
+                ctx.fillStyle = '#FF1493'; // Hot pink
+                // Draw 8-pointed star
+                for (let i = 0; i < 8; i++) {
+                    ctx.lineTo(Math.cos((i * 45) * Math.PI / 180) * this.size,
+                              Math.sin((i * 45) * Math.PI / 180) * this.size);
+                    ctx.lineTo(Math.cos((22.5 + i * 45) * Math.PI / 180) * (this.size/2),
+                              Math.sin((22.5 + i * 45) * Math.PI / 180) * (this.size/2));
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.strokeStyle = '#FF69B4';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            update() {
+                this.x -= pipeSpeed * 0.7;
+                this.rotation += 0.03;
+            }
+        }
+
+        // Update game logic each frame
+        function update() {
+            if (gameOver) return;
+
+            // Bird movement with custom jump mechanic
+            if (isJumping && jumpHoldFrames > 0 && spacePressed) {
+                bird.velocity = initialJumpVelocity;
+                jumpHoldFrames -= 1;
+                bird.rotation = -0.3;  // Point slightly upward when jumping
+            } else {
+                bird.velocity += bird.gravity;
+                if (jumpHoldFrames <= 0) {
+                    isJumping = false;
+                }
+                // Smoothly rotate bird based on velocity
+                const targetRotation = Math.min(Math.PI/2, Math.max(-Math.PI/2, bird.velocity * 0.15));
+                bird.rotation = bird.rotation * 0.9 + targetRotation * 0.1;
+            }
+            bird.y += bird.velocity;
+
+            // Wing flapping animation
+            bird.wingAngle += bird.wingSpeed;
+            if (bird.wingAngle > 0.5 || bird.wingAngle < -0.5) bird.wingSpeed *= -1;
+
+            // Update pipes
+            pipes.forEach((pipe, index) => {
+                pipe.x -= pipeSpeed;  // Don't round during physics update
+
+                // Check if we need to add a new pipe
+                if (pipes.length < 2 || (index === pipes.length - 1 && pipe.x < canvas.width - PIPE_SPACING)) {
+                    const newPipe = createNewPipe();
+                    newPipe.x = canvas.width + (pipe.x + PIPE_SPACING - canvas.width); // Don't round during creation
+                    pipes.push(newPipe);
+                }
+
+                // Remove off-screen pipes
+                if (pipe.x + pipeWidth < 0) {
+                    pipes.splice(index, 1);
+                }
+
+                // Increment score when bird passes a pipe
+                if (!pipe.passed && bird.x > pipe.x + pipeWidth) {
+                    pipe.passed = true;
+                    const points = POINTS[pipe.difficulty];
+                    const chaosBonus = pipesOscillating ? 5 : 0;
+                    score += points + chaosBonus;
+                    
+                    // Play score sound
+                    scoreSound.currentTime = 0;
+                    scoreSound.play();
+                    
+                    // Create score animations with better spacing
+                    scoreAnimation = {
+                        y: bird.y - 40,  // Move regular points higher
+                        opacity: 1,
+                        text: `+${points}`,
+                        color: '#000000',
+                        size: 36,
+                        rotation: 0
+                    };
+                    
+                    if (chaosBonus > 0) {
+                        scoreAnimation.bonusText = {
+                            text: `+${chaosBonus} CHAOS`,
+                            color: '#FF1493',
+                            offset: 50,  // Increased vertical separation
+                            size: 32
+                        };
+                    }
+                    
+                    // Show exclamation further down
+                    const randomExclamation = exclamations[Math.floor(Math.random() * exclamations.length)];
+                    const colors = ['#FF0000', '#FFA500', '#FFD700', '#00FF00', '#4169E1', '#9400D3'];
+                    const randomColor = colors[Math.floor(Math.random() * colors.length)];
+                    
+                    exclamationAnimation = {
+                        y: bird.y + 40,  // Move exclamation lower
+                        opacity: 1,
+                        text: randomExclamation,
+                        color: randomColor,
+                        size: 36 + Math.random() * 12,
+                        rotation: (Math.random() - 0.5) * 0.5
+                    };
+                    
+                    updateScoreDisplay();
+                }
+
+                // Check for collision with pipes only if not invincible
+                if (!isInvincible && bird.x + bird.radius > pipe.x && 
+                    bird.x - bird.radius < pipe.x + pipeWidth &&
+                    (bird.y - bird.radius < pipe.height || bird.y + bird.radius > pipe.height + pipe.gap)) {
+                    if (!gameOver) {
+                        gameOver = true;
+                        bloodSplat = new BloodSplat(bird.x, bird.y);
+                        // Stop all music and sounds
+                        gameOverSound.currentTime = 0;
+                        gameOverSound.play();
+                        backgroundMusic.pause();
+                        invincibleMusic.pause();
+                        // Show game over overlay
+                        const gameOverOverlay = document.getElementById('gameOverOverlay');
+                        const finalScoreDiv = document.getElementById('finalScore');
+                        gameOverOverlay.style.display = 'block';
+                        finalScoreDiv.textContent = `Final Score: ${score}`;
+                    }
+                }
+            });
+
+            // Update score animation
+            if (scoreAnimation) {
+                scoreAnimation.y -= 1;
+                scoreAnimation.opacity -= 0.03;
+                if (scoreAnimation.opacity <= 0) scoreAnimation = null;
+            }
+
+            if (exclamationAnimation) {
+                exclamationAnimation.y -= 1;
+                exclamationAnimation.opacity -= 0.03;
+                if (exclamationAnimation.opacity <= 0) exclamationAnimation = null;
+            }
+
+            // Check if bird hits the spikes or goes off screen
+            if (!isInvincible && (bird.y - bird.radius < spikeSize || bird.y + bird.radius > canvas.height - spikeSize)) {
+                if (!gameOver) {
+                    gameOver = true;
+                    bloodSplat = new BloodSplat(bird.x, bird.y);
+                    // Stop all music and sounds
+                    gameOverSound.currentTime = 0;
+                    gameOverSound.play();
+                    backgroundMusic.pause();
+                    invincibleMusic.pause();
+                    // Show game over overlay
+                    const gameOverOverlay = document.getElementById('gameOverOverlay');
+                    const finalScoreDiv = document.getElementById('finalScore');
+                    gameOverOverlay.style.display = 'block';
+                    finalScoreDiv.textContent = `Final Score: ${score}`;
+                }
+            } else if (bird.y < 0 || bird.y > canvas.height) { // Complete off-screen check
+                if (!gameOver) {
+                    gameOver = true;
+                    // Stop all music and sounds
+                    gameOverSound.currentTime = 0;
+                    gameOverSound.play();
+                    backgroundMusic.pause();
+                    invincibleMusic.pause();
+                    // Show game over overlay
+                    const gameOverOverlay = document.getElementById('gameOverOverlay');
+                    const finalScoreDiv = document.getElementById('finalScore');
+                    gameOverOverlay.style.display = 'block';
+                    finalScoreDiv.textContent = `Final Score: ${score}`;
+                }
+            }
+
+            // Update clouds
+            if (clouds.length < maxClouds && Math.random() < 0.005) {
+                clouds.push(new Cloud());
+            }
+
+            clouds = clouds.filter(cloud => cloud.x + cloud.width > 0);
+            
+            clouds.forEach(cloud => {
+                cloud.update();
+            });
+
+            // Update invincibility
+            if (isInvincible) {
+                invincibilityTimer -= 16;
+                visualEffectTimer -= 16;
+                if (visualEffectTimer <= 0) {
+                    invincibleMusic.pause();
+                    invincibleMusic.currentTime = 0;
+                    // Immediately resume background music at full volume
+                    backgroundMusic.play();
+                    backgroundMusic.volume = bgMusicVolume;
+                    bgMusicFadeIn = false;
+                }
+                if (invincibilityTimer <= 0) {
+                    isInvincible = false;
+                }
+            }
+
+            // Spawn stars (rare chance)
+            if (Math.random() < 0.002 && stars.length < 1) {
+                stars.push(new Star());
+            }
+
+            // Spawn chaos stars (rare chance)
+            if (Math.random() < 0.001 && chaosStars.length < 1 && !pipesOscillating) {
+                chaosStars.push(new ChaosStar());
+            }
+
+            // Update oscillation timer
+            if (pipesOscillating) {
+                oscillationTimer -= 16;
+                if (oscillationTimer <= 0) {
+                    pipesOscillating = false;
+                    // Smoothly return pipes to their original positions
+                    pipes.forEach(pipe => {
+                        // Ensure we have the original height stored
+                        if (!pipe.hasOwnProperty('originalHeight')) {
+                            pipe.originalHeight = pipe.height;
+                        }
+                        // Set height back to original
+                        pipe.height = pipe.originalHeight;
+                        // Clean up oscillation properties
+                        delete pipe.oscillationOffset;
+                    });
+                }
+            }
+
+            // Update and check star collisions
+            stars = stars.filter(star => {
+                star.update();
+                
+                // Check for collection
+                if (!star.collected && 
+                    Math.abs(bird.x - star.x) < bird.radius + star.size/2 &&
+                    Math.abs(bird.y - star.y) < bird.radius + star.size/2) {
+                    isInvincible = true;
+                    invincibilityTimer = INVINCIBILITY_DURATION;
+                    visualEffectTimer = VISUAL_EFFECT_DURATION;
+                    star.collected = true;
+                    
+                    // Only start invincibility music if it's not already playing
+                    if (invincibleMusic.paused) {
+                        invincibleMusic.currentTime = 0;
+                        invincibleMusic.play();
+                        backgroundMusic.pause();
+                    }
+                    
+                    // Show "INVINCIBLE!" text
+                    scoreAnimation = {
+                        y: bird.y,
+                        opacity: 1,
+                        text: "INVINCIBLE!",
+                        color: '#FFD700',
+                        size: 48,
+                        rotation: 0
+                    };
+                    
+                    return false;
+                }
+                
+                return star.x + star.size > 0;
+            });
+
+            // Update and check chaos star collisions
+            chaosStars = chaosStars.filter(star => {
+                star.update();
+                
+                if (!star.collected && 
+                    Math.abs(bird.x - star.x) < bird.radius + star.size/2 &&
+                    Math.abs(bird.y - star.y) < bird.radius + star.size/2) {
+                    pipesOscillating = true;
+                    oscillationTimer = OSCILLATION_DURATION;
+                    star.collected = true;
+                    
+                    // Play chaos sound
+                    chaosSound.currentTime = 0;
+                    chaosSound.play();
+                    
+                    // Show "CHAOS MODE!" text
+                    scoreAnimation = {
+                        y: bird.y,
+                        opacity: 1,
+                        text: "CHAOS MODE!",
+                        color: '#FF1493',
+                        size: 48,
+                        rotation: 0
+                    };
+                    
+                    return false;
+                }
+                
+                return star.x + star.size > 0;
+            });
+
+            // Modify pipe oscillation update
+            if (pipesOscillating) {
+                pipes.forEach(pipe => {
+                    if (!pipe.hasOwnProperty('originalHeight')) {
+                        pipe.originalHeight = pipe.height;
+                        pipe.oscillationOffset = 0;
+                    }
+                    pipe.oscillationOffset = (pipe.oscillationOffset || 0) + OSCILLATION_SPEED;
+                    pipe.height = pipe.originalHeight + 
+                        Math.sin(pipe.oscillationOffset * 0.03) * OSCILLATION_AMPLITUDE;
+                });
+            }
+
+            // Add background music fade handling to update function
+            if (bgMusicFadeIn) {
+                backgroundMusic.volume = Math.min(bgMusicVolume, backgroundMusic.volume + (bgMusicVolume / 60));
+                if (backgroundMusic.volume >= bgMusicVolume) {
+                    bgMusicFadeIn = false;
+                }
+            }
+        }
+
+        // Render the game to the canvas
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Update scroll offset based on pipe speed, but only if game is not over
+            if (!gameOver) {
+                scrollOffset = (scrollOffset + pipeSpeed) % spikeSpacing;
+            }
+
+            // Draw clouds first (in background)
+            clouds.forEach(cloud => {
+                cloud.draw();
+            });
+
+            // Draw spikes at top
+            ctx.fillStyle = '#A9A9A9';
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';  // Subtle outline
+            ctx.lineWidth = 1;  // Thinner line for background element
+
+            // Draw shadows first
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            for(let x = -scrollOffset; x < canvas.width + spikeSpacing; x += spikeSpacing) {
+                ctx.beginPath();
+                ctx.moveTo(x + 2, 2);
+                ctx.lineTo(x + spikeSize/2 + 2, spikeSize + 2);
+                ctx.lineTo(x + spikeSpacing + 2, 2);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // Draw main spikes
+            ctx.fillStyle = '#A9A9A9';
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+            for(let x = -scrollOffset; x < canvas.width + spikeSpacing; x += spikeSpacing) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x + spikeSize/2, spikeSize);
+                ctx.lineTo(x + spikeSpacing, 0);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            }
+
+            // Draw spikes at bottom
+            // Draw shadows first
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            for(let x = -scrollOffset; x < canvas.width + spikeSpacing; x += spikeSpacing) {
+                ctx.beginPath();
+                ctx.moveTo(x + 2, canvas.height + 2);
+                ctx.lineTo(x + spikeSize/2 + 2, canvas.height - spikeSize + 2);
+                ctx.lineTo(x + spikeSpacing + 2, canvas.height + 2);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // Draw main spikes
+            ctx.fillStyle = '#A9A9A9';
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+            for(let x = -scrollOffset; x < canvas.width + spikeSpacing; x += spikeSpacing) {
+                ctx.beginPath();
+                ctx.moveTo(x, canvas.height);
+                ctx.lineTo(x + spikeSize/2, canvas.height - spikeSize);
+                ctx.lineTo(x + spikeSpacing, canvas.height);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            }
+
+            // Draw stars (before pipes)
+            stars.forEach(star => star.draw());
+
+            // Draw pipes with difficulty colors
+            pipes.forEach(pipe => {
+                const drawX = Math.round(pipe.x);  // Round only for drawing
+                
+                // Draw shadows
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+                ctx.fillRect(drawX + 4, 4, pipeWidth, pipe.height);
+                ctx.fillRect(drawX + 4, pipe.height + pipe.gap + 4, pipeWidth, canvas.height);
+
+                // Draw main pipes with difficulty colors
+                switch(pipe.difficulty) {
+                    case 'easy':
+                        ctx.fillStyle = '#228B22';
+                        ctx.strokeStyle = '#000000';
+                        break;
+                    case 'medium':
+                        ctx.fillStyle = '#DAA520';
+                        ctx.strokeStyle = '#000000';
+                        break;
+                    case 'hard':
+                        ctx.fillStyle = '#E60000';
+                        ctx.strokeStyle = '#000000';
+                        break;
+                }
+                ctx.lineWidth = 4;
+                
+                // Draw the colored pipes
+                ctx.fillRect(drawX, 0, pipeWidth, pipe.height);
+                ctx.strokeRect(drawX, 0, pipeWidth, pipe.height);
+                ctx.fillRect(drawX, pipe.height + pipe.gap, pipeWidth, canvas.height);
+                ctx.strokeRect(drawX, pipe.height + pipe.gap, pipeWidth, canvas.height);
+            });
+
+            // Draw bird with invincibility effect
+            if (isInvincible && visualEffectTimer > 0) {
+                // Draw glowing effect
+                const gradient = ctx.createRadialGradient(
+                    bird.x, bird.y, bird.radius,
+                    bird.x, bird.y, bird.radius * 2
+                );
+                gradient.addColorStop(0, 'rgba(255, 0, 0, 0.3)');
+                gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(bird.x, bird.y, bird.radius * 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Draw bird with cell-shaded style
+            ctx.save();
+            ctx.translate(bird.x, bird.y);
+            ctx.rotate(bird.rotation);
+            
+            // Draw shadow
+            ctx.fillStyle = '#D4AF37'; // Darker gold for shadow
+            ctx.beginPath();
+            ctx.arc(bird.shadowOffset, bird.shadowOffset, bird.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw main body
+            ctx.fillStyle = '#FFD700';
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(0, 0, bird.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // Draw beak with cell-shading
+            ctx.fillStyle = '#FF8C00';
+            ctx.strokeStyle = '#000000';
+            ctx.beginPath();
+            ctx.moveTo(bird.radius - 2, -2);
+            ctx.lineTo(bird.radius + 10, 0);
+            ctx.lineTo(bird.radius - 2, 2);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Draw wing with cell-shading
+            ctx.fillStyle = '#FFA500';
+            ctx.strokeStyle = '#000000';
+            ctx.beginPath();
+            ctx.arc(-5, 5, bird.radius / 2, bird.wingAngle, bird.wingAngle + Math.PI);
+            ctx.fill();
+            ctx.stroke();
+
+            // Draw eye with cell-shading
+            ctx.fillStyle = 'white';
+            ctx.strokeStyle = '#000000';
+            ctx.beginPath();
+            ctx.arc(8, -8, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            
+            // Draw pupil
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(8, -8, 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+
+            // Draw score animation
+            if (scoreAnimation) {
+                drawFloatingText(scoreAnimation);
+            }
+
+            if (exclamationAnimation) {
+                drawFloatingText(exclamationAnimation);
+            }
+
+            // Draw chaos stars
+            chaosStars.forEach(star => star.draw());
+
+            // Add visual indicator for oscillating pipes
+            if (pipesOscillating) {
+                ctx.fillStyle = 'rgba(255, 20, 147, 0.1)'; // Light pink overlay
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            // Add blood splat
+            if (bloodSplat) {
+                bloodSplat.draw(ctx);
+                bloodSplat.update();
+            }
+        }
+
+        // Main game loop
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start the game
+        updateScoreDisplay();
+        gameLoop();
+
+        // Helper function to convert hex to rgb
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? 
+                `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : 
+                '255, 255, 255';
+        }
+
+        // Add helper function for drawing floating text
+        function drawFloatingText(animation) {
+            ctx.save();
+            ctx.translate(bird.x + bird.radius + 30, animation.y);
+            ctx.rotate(animation.rotation);
+            
+            // Draw main score
+            ctx.font = `bold ${animation.size}px Arial`;
+            ctx.textAlign = 'center';
+            
+            // Draw outline
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 4;
+            ctx.strokeText(animation.text, 0, 0);
+            
+            // Draw colored text
+            ctx.fillStyle = `rgba(${hexToRgb(animation.color)}, ${animation.opacity})`;
+            ctx.fillText(animation.text, 0, 0);
+
+            // Draw bonus text if it exists
+            if (animation.bonusText) {
+                ctx.font = `bold ${animation.bonusText.size || (animation.size * 0.8)}px Arial`;
+                
+                // Draw outline for bonus
+                ctx.strokeStyle = 'white';
+                ctx.strokeText(animation.bonusText.text, 0, animation.bonusText.offset);
+                
+                // Draw colored bonus text
+                ctx.fillStyle = `rgba(${hexToRgb(animation.bonusText.color)}, ${animation.opacity})`;
+                ctx.fillText(animation.bonusText.text, 0, animation.bonusText.offset);
+            }
+            
+            ctx.restore();
+        }
+
+        // Restore keyboard controls while keeping touch controls
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !gameOver) {
+                if (!isJumping) {
+                    bird.velocity = initialJumpVelocity;
+                    isJumping = true;
+                    jumpHoldFrames = maxHoldFrames;
+                    whooshSound.currentTime = 0;
+                    whooshSound.play();
+                }
+                spacePressed = true;
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') {
+                spacePressed = false;
+                if (gameOver) {
+                    resetGame();
+                }
+            }
+        });
+    </script>
+</body>
+</html>
